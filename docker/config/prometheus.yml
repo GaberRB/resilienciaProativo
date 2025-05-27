@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'spring-apps'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['transacional-server:8081']

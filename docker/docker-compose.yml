@@ -1,0 +1,138 @@
+version: '3.8'
+
+networks:
+  gb-network:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  kafka_data:
+  zookeeper_data:
+  redis_data:
+
+services:
+  zookeeper:
+    image: zookeeper:3.4.9
+    ports:
+      - "2181:2181"
+    networks:
+      - gb-network
+    volumes:
+      - zookeeper_data:/data
+      - zookeeper_data:/datalog
+
+  kafka1:
+    image: confluentinc/cp-kafka:5.3.0
+    ports:
+      - "9091:9091"
+    networks:
+      - gb-network
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_DOCKER_INTERNAL://kafka1:19091,LISTENER_DOCKER_EXTERNAL://localhost:9091
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_DOCKER_INTERNAL:PLAINTEXT,LISTENER_DOCKER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: LISTENER_DOCKER_INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_BROKER_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    networks:
+      - gb-network
+    environment:
+      KAFKA_BROKERCONNECT: "kafka1:19091"
+    depends_on:
+      - kafka1
+
+  redis:
+    image: redis:7.2
+    ports:
+      - "6379:6379"
+    networks:
+      - gb-network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+
+  intermitente-server:
+    build:
+      context: ../intermitente
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    networks:
+      - gb-network
+
+  proativo-server:
+    build:
+      context: ../proativo
+      dockerfile: Dockerfile
+    networks:
+      - gb-network
+    environment:
+      - KAFKA_URL=kafka1:19091
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - INTERMITENTE_URL=http://intermitente-server:8080/pagamentos/pagar
+    depends_on:
+      - redis
+      - intermitente-server
+      - kafka1
+      - zookeeper
+
+  transacional-server:
+    build:
+      context: ../transacional
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    networks:
+      - gb-network
+    environment:
+      - KAFKA_URL=kafka1:19091
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - INTERMITENTE_URL=http://intermitente-server:8080/pagamentos/pagar
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+    depends_on:
+      - kafka1
+      - redis
+      - intermitente-server
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    networks:
+      - gb-network
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - transacional-server
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    networks:
+      - gb-network
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana

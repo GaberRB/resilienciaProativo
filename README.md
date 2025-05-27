@@ -20,8 +20,8 @@ Certifique-se de que possui:
 ## 📦 Como Rodar o Projeto
 ### 1️⃣ Clone o repositório
 ```sh
-git clone https://github.com/seu-usuario/projeto-resiliencia.git
-cd projeto-resiliencia
+git git@github.com:GaberRB/resilienciaProativo.git
+cd resilienciaProativo/docker
 
 
 2️⃣ Inicie os serviços com Docker Compose
